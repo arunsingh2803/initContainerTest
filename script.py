@@ -1,65 +1,52 @@
-import os
 import sys
-from google.cloud import storage
 import time
+import requests
 
 
-def download_file_from_gcs():
-    storage_client = storage.Client("dc-hughes-poc-gke")
-    bucket = storage_client.get_bucket("version_check_bucket_echostar")
-    blob = bucket.blob("running_version.txt")
-    blob.download_to_filename("running_version.txt")
+def check_for_go_ahead(version, appname):
+    url = "http://127.0.0.1:5000/go_ahead"
+    querystring = {"appname": appname, "version": version}
+    response = requests.request("GET", url, params=querystring)
+    return response.text
 
 
-def upload_file_to_gcs():
-    storage_client = storage.Client("dc-hughes-poc-gke")
-    bucket = storage_client.get_bucket("version_check_bucket_echostar")
-    blob = bucket.blob("running_version.txt")
-    blob.upload_from_filename("running_version.txt")
+def run_db_schema_change(deploying_version, app):
+    print("Running DB schema change for app {0} and DB schema version {1}".format(app, deploying_version))
+    time.sleep(10) # Replace this with actual DB schema change job
+    job_status = "Success" # change to Failed if job_status fails
+    unlock_deployment(app, job_status, deploying_version)
+    return job_status
 
 
-def create_pid_file():
-    with open('check_version.pid', 'w') as fp:
-        pass
+def unlock_deployment(appname, job_status, deploying_version):
+    url = "http://127.0.0.1:5000/unlock_depl"
+    querystring = {"appname": appname, "job_status": job_status, "deploying_version": deploying_version}
+    response = requests.request("GET", url, params=querystring)
+    return response.text
 
 
-def delete_pid_file():
-    os.remove("check_version.pid")
-
-
-def check_version_run_schema_change(version):
-    create_pid_file()
-    download_file_from_gcs()
-    with open('running_version.txt', 'r') as file:
-        running_version = file.read().replace('\n', '')
-
-    if running_version < version:
-        print("Run DB Scahema changes")
-    else:
-        print("No need to run DB Schema changes")
-
-    with open('running_version.txt', "w") as file:
-        file.write(deploying_version)
-
-    upload_file_to_gcs()
-    delete_pid_file()
-
-
-def main(depl_version):
-    path_to_file = "check_version.pid"
-    if os.path.exists(path_to_file):
+def analyse_decision(decision, deploying_version, app):
+    if decision == "wait":
         sleep_time = 10
-        while sleep_time < 40:
-            print("Waiting for other initContainer request to complete, sleeping for 10 sec")
+        while sleep_time < 300:
+            print("Waiting for goahead from controller, sleeping for 10 sec")
             time.sleep(sleep_time)
+            decision = check_for_go_ahead(deploying_version, app)
+            if decision != "wait":
+                break
             sleep_time += 10
         else:
             print("Wait time exceeded")
             sys.exit(1)
-    else:
-        check_version_run_schema_change(depl_version)
+    elif decision == "run":
+        status = run_db_schema_change(deploying_version, app)
+        print("DB schema change job finished with status: {0}".format(status))
+    elif decision == "noneed":
+        print("No need to run DB Schema changes")
 
 
 if __name__ == "__main__":
     deploying_version = sys.argv[1]
-    main(deploying_version)
+    app = sys.argv[2]
+    decision = check_for_go_ahead(deploying_version, app)
+    analyse_decision(decision, deploying_version, app)
