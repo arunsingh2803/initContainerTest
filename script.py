@@ -4,7 +4,7 @@ import requests
 
 
 def check_for_go_ahead(version, appname):
-    url = "http://127.0.0.1:5000/go_ahead"
+    url = "http://hello-python-service/go_ahead"
     querystring = {"appname": appname, "version": version}
     response = requests.request("GET", url, params=querystring)
     return response.text
@@ -19,7 +19,7 @@ def run_db_schema_change(deploying_version, app):
 
 
 def unlock_deployment(appname, job_status, deploying_version):
-    url = "http://127.0.0.1:5000/unlock_depl"
+    url = "http://hello-python-service/unlock_depl"
     querystring = {"appname": appname, "job_status": job_status, "deploying_version": deploying_version}
     response = requests.request("GET", url, params=querystring)
     return response.text
@@ -42,6 +42,8 @@ def analyse_decision(decision, deploying_version, app):
         status = run_db_schema_change(deploying_version, app)
         print("DB schema change job finished with status: {0}".format(status))
     elif decision == "noneed":
+        job_status = "norun"
+        unlock_deployment(app, job_status, deploying_version)
         print("No need to run DB Schema changes")
 
 
